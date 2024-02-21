@@ -10,6 +10,7 @@ import (
 
 var (
 	port = flag.String("port", "8000", "server port")
+	dir  = flag.String("dir", "tmp", "directory which stores uploaded files")
 )
 
 func main() {
