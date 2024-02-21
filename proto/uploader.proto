@@ -1,0 +1,35 @@
+syntax="proto3";
+
+package proto;
+
+option go_package="github.com/cod3rboy/grpc-file-upload/gen/uploader";
+
+service UploaderService {
+    rpc UploadFile(stream File) returns (FileInfo);
+}
+
+enum FileType {
+    IMAGE = 0;
+    VIDEO = 1;
+    AUDIO = 3;
+    DOCUMENT = 4;
+    TEXTPLAIN = 5;
+}
+
+message FileMeta {
+    string fileNameWithExt = 1;
+    FileType type = 2;
+}
+
+message File {
+    oneof Upload {
+        FileMeta meta = 1;
+        bytes chunk = 2;
+    }
+}
+
+message FileInfo {
+    string name = 1;
+    string type = 2;
+    int64 sizeInBytes = 3;
+}
