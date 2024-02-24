@@ -64,7 +64,7 @@ func (s *uploaderSvc) UploadFile(stream pb.UploaderService_UploadFileServer) err
 	fileMeta := data.GetMeta()
 	fileName := fileMeta.GetFileNameWithExt()
 	fileType := fileMeta.GetType().String()
-	fileExt := path.Ext(fileName)
+	fileExt := strings.TrimLeft(path.Ext(fileName), ".")
 
 	// file support validation step
 	if fileExt == "" {
