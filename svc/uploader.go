@@ -1,7 +1,6 @@
 package svc
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"log"
@@ -109,7 +108,6 @@ type UploadFileReader struct {
 }
 
 func (r *UploadFileReader) Read(buf []byte) (n int, err error) {
-	buffer := bytes.NewBuffer(buf)
 	// Receive file binary stream from client
 	file, err := r.Stream.Recv()
 	if err == io.EOF {
@@ -119,13 +117,15 @@ func (r *UploadFileReader) Read(buf []byte) (n int, err error) {
 		err = fmt.Errorf("failed to read file chunk: %v", err)
 		return
 	}
-	return buffer.Write(file.GetChunk())
+	chunk := file.GetChunk()
+	copy(buf, chunk)
+	return len(chunk), nil
 }
 
 func PrepareFileUpload(rootFolder string, fileType string, fileName string) (*os.File, error) {
 	wd, _ := os.Getwd()
-	normalizedAbsolutePath := strings.ToLower(path.Join(wd, rootFolder, fileType, fileName))
-	if err := os.MkdirAll(path.Dir(normalizedAbsolutePath), os.ModeDir); err != nil {
+	normalizedAbsolutePath := path.Join(wd, rootFolder, strings.ToLower(path.Join(fileType, fileName)))
+	if err := os.MkdirAll(path.Dir(normalizedAbsolutePath), 0755); err != nil {
 		return nil, fmt.Errorf("failed to initialize save location: %v", err)
 	}
 	file, err := os.Create(normalizedAbsolutePath)

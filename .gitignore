@@ -25,3 +25,6 @@ gen/
 
 # vscode
 .vscode/
+
+# tmp director
+tmp/
