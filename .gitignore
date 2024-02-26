@@ -28,3 +28,6 @@ gen/
 
 # tmp director
 tmp/
+
+# debug binaries
+/**/__debug_bin*
