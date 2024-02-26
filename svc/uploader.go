@@ -100,11 +100,79 @@ func (s *uploaderSvc) UploadFile(stream pb.UploaderService_UploadFileServer) err
 	return stream.SendAndClose(fileInfo)
 }
 
+func (s *uploaderSvc) UploadFileWithProgress(stream pb.UploaderService_UploadFileWithProgressServer) error {
+	data, err := stream.Recv()
+	if err != nil {
+		return err
+	}
+
+	fileMeta := data.GetMeta()
+	fileName := fileMeta.GetFileNameWithExt()
+	fileType := fileMeta.GetType().String()
+	fileExt := strings.TrimLeft(path.Ext(fileName), ".")
+
+	// file support validation step
+	if fileExt == "" {
+		return fmt.Errorf("extension not specified in file name")
+	}
+	supportedExts := supportedFileTypes[fileType]
+	_, fileSupported := supportedExts[fileExt]
+	if !fileSupported {
+		return fmt.Errorf("file with extension %s is not supported", fileExt)
+	}
+
+	uploadFile, err := PrepareFileUpload(s.directory, fileType, fileName)
+	if err != nil {
+		return err
+	}
+	defer uploadFile.Close()
+
+	bytesReportChan := make(chan int)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		var received int64
+		for {
+			bytesReceived, ok := <-bytesReportChan
+			if !ok {
+				break
+			}
+			received += int64(bytesReceived)
+			fileInfo := &pb.FileInfo{
+				Name:        fileName,
+				Type:        fileType,
+				SizeInBytes: int64(received),
+			}
+			stream.Send(fileInfo)
+		}
+	}()
+	reader := &UploadFileReader{
+		Stream: stream,
+	}
+	bytesReporter := &ReadBytesReporter{
+		reportChan: bytesReportChan,
+	}
+	totalBytes, err := io.Copy(uploadFile, io.TeeReader(reader, bytesReporter))
+	close(bytesReportChan)
+	<-done
+	if err != nil {
+		return fmt.Errorf("failed to save file chunks: %v", err)
+	}
+
+	log.Printf("file uploaded %s/%s with total %d bytes.", fileType, fileName, totalBytes)
+
+	return nil
+}
+
 // compile time verification for interface implementation
 var _ io.Reader = (*UploadFileReader)(nil)
 
+type UploadFileStream interface {
+	Recv() (*pb.File, error)
+}
+
 type UploadFileReader struct {
-	Stream pb.UploaderService_UploadFileServer
+	Stream UploadFileStream
 }
 
 func (r *UploadFileReader) Read(buf []byte) (n int, err error) {
@@ -133,4 +201,14 @@ func PrepareFileUpload(rootFolder string, fileType string, fileName string) (*os
 		return nil, fmt.Errorf("failed to create upload file: %v", err)
 	}
 	return file, nil
+}
+
+type ReadBytesReporter struct {
+	reportChan chan int
+}
+
+func (c *ReadBytesReporter) Write(buf []byte) (int, error) {
+	n := len(buf)
+	c.reportChan <- n
+	return n, nil
 }

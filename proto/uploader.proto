@@ -6,6 +6,7 @@ option go_package="github.com/cod3rboy/grpc-file-upload/gen/uploader";
 
 service UploaderService {
     rpc UploadFile(stream File) returns (FileInfo);
+    rpc UploadFileWithProgress(stream File) returns (stream FileInfo);
 }
 
 enum FileType {

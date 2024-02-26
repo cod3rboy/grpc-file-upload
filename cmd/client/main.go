@@ -11,13 +11,15 @@ import (
 	pb "github.com/cod3rboy/grpc-file-upload/gen/uploader"
 	"github.com/fatih/color"
 	"github.com/manifoldco/promptui"
+	"github.com/schollz/progressbar/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 var (
-	filePath = flag.String("file", "", "file to upload to server")
-	server   = flag.String("server", "localhost:8000", "server address")
+	filePath     = flag.String("file", "", "file to upload to server")
+	server       = flag.String("server", "localhost:8000", "server address")
+	withProgress = flag.Bool("progress", false, "upload file with progress")
 )
 
 func main() {
@@ -28,11 +30,92 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := UploadFile(*filePath); err != nil {
-		os.Exit(2)
+	if !*withProgress {
+		if err := UploadFile(*filePath); err != nil {
+			os.Exit(2)
+		}
+	} else {
+		if err := UploadFileWithProgress(*filePath); err != nil {
+			os.Exit(2)
+		}
 	}
 
 	color.Green("file uploaded successfully")
+}
+
+func UploadFileWithProgress(filePath string) error {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return printReturnError("failed to open file", err)
+	}
+	defer file.Close()
+
+	fileStat, err := file.Stat()
+	if err != nil {
+		return printReturnError("failed to get file stats", err)
+	}
+	totalFileSize := fileStat.Size()
+
+	conn, err := grpc.Dial(*server, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		return printReturnError("failed to connect with server", err)
+	}
+
+	client := pb.NewUploaderServiceClient(conn)
+	stream, err := client.UploadFileWithProgress(context.Background())
+	if err != nil {
+		return printReturnError("failed to create client stream", err)
+	}
+
+	// send metadata
+	fileMeta := &pb.File{
+		Upload: &pb.File_Meta{
+			Meta: &pb.FileMeta{
+				FileNameWithExt: path.Base(filePath),
+				Type:            promptFileType(),
+			},
+		},
+	}
+
+	if err := stream.Send(fileMeta); err != nil {
+		return printReturnError("failed to send file meta", err)
+	}
+
+	// retrieve server upload progress
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		bar := progressbar.Default(100)
+		for {
+			fileInfo, err := stream.Recv()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				color.Red("error while getting server progress: ", err)
+				break
+			}
+			progressPercent := (fileInfo.SizeInBytes * 100) / totalFileSize
+			bar.Set64(progressPercent)
+		}
+	}()
+
+	// stream file to the server
+	writer := &UploadFileWriter{
+		Stream: stream,
+	}
+	clientBytesWritten, err := io.Copy(writer, file)
+	if err != nil {
+		return printReturnError("error while uploading file", err)
+	}
+	if err = stream.CloseSend(); err != nil {
+		return printReturnError("failed to close stream send", err)
+	}
+	<-done
+
+	color.Green("%d bytes were sent", clientBytesWritten)
+
+	return nil
 }
 
 func UploadFile(filePath string) error {
@@ -123,8 +206,12 @@ func promptFileType() pb.FileType {
 // compile time verification of interface implementation
 var _ io.Writer = (*UploadFileWriter)(nil)
 
+type ServerUploadStream interface {
+	Send(*pb.File) error
+}
+
 type UploadFileWriter struct {
-	Stream pb.UploaderService_UploadFileClient
+	Stream ServerUploadStream
 }
 
 func (w *UploadFileWriter) Write(buf []byte) (n int, err error) {
