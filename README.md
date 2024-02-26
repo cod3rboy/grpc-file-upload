@@ -20,8 +20,8 @@ RPC functions -
 
 | Flag | Description                           | Usage                | Default Value |
 | ---- | ------------------------------------- | -------------------- | ------------- |
-| port | server port                           | `-port <value>`      | 8000          |
-| dir  | directory which stores uploaded files | `-dir <path-to-dir>` | tmp           |
+| port | server port                           | `-port=<value>`      | 8000          |
+| dir  | directory which stores uploaded files | `-dir=<path-to-dir>` | tmp           |
 
 ## Running client
 
@@ -31,6 +31,6 @@ RPC functions -
 
 | Flag              | Description                | Usage                     | Default Value  |
 | ----------------- | -------------------------- | ------------------------- | -------------- |
-| file (_required_) | file to upload to server   | `-file <path-to-file>`    | _none_         |
-| server            | server address (host:port) | `-server <host:port>`     | localhost:8000 |
-| progress          | display upload progress    | `-progress <true\|false>` | false          |
+| file (_required_) | file to upload to server   | `-file=<path-to-file>`    | _none_         |
+| server            | server address (host:port) | `-server=<host:port>`     | localhost:8000 |
+| progress          | display upload progress    | `-progress=<true\|false>` | false          |

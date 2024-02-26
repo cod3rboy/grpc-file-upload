@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"net"
 
@@ -14,6 +15,8 @@ var (
 )
 
 func main() {
+	flag.Parse()
+
 	listener, err := net.Listen("tcp", ":"+*port)
 	if err != nil {
 		log.Fatalf("failed to create listener: %v", err)
@@ -22,6 +25,7 @@ func main() {
 	server := grpc.NewServer()
 	registerServices(server)
 
+	fmt.Printf("server listening on port %s ...\n", *port)
 	if err := server.Serve(listener); err != nil {
 		log.Fatalf("failed to run grpc server: %v", err)
 	}
