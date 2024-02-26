@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 
+	"github.com/cod3rboy/grpc-file-upload/cmd/server/interceptors"
 	"google.golang.org/grpc"
 )
 
@@ -22,7 +23,7 @@ func main() {
 		log.Fatalf("failed to create listener: %v", err)
 	}
 
-	server := grpc.NewServer()
+	server := grpc.NewServer(grpc.StreamInterceptor(interceptors.StreamLogInterceptor))
 	registerServices(server)
 
 	fmt.Printf("server listening on port %s ...\n", *port)
