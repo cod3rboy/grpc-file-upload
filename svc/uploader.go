@@ -24,6 +24,7 @@ func init() {
 	video := map[string]bool{
 		"mp4": true,
 		"mkv": true,
+		"mov": true,
 	}
 	audio := map[string]bool{
 		"mp3": true,
