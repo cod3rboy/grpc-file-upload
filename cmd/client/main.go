@@ -8,10 +8,9 @@ import (
 	"path"
 	"strings"
 
+	"github.com/cod3rboy/grpc-file-upload/common"
 	pb "github.com/cod3rboy/grpc-file-upload/gen/uploader"
 	"github.com/fatih/color"
-	"github.com/manifoldco/promptui"
-	"github.com/schollz/progressbar/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -68,40 +67,15 @@ func UploadFileWithProgress(filePath string) error {
 	}
 
 	// send metadata
-	fileMeta := &pb.File{
-		Upload: &pb.File_Meta{
-			Meta: &pb.FileMeta{
-				FileNameWithExt: path.Base(filePath),
-				Type:            promptFileType(),
-			},
-		},
-	}
-
-	if err := stream.Send(fileMeta); err != nil {
+	metaFile := makeMetaFile(filePath)
+	if err := stream.Send(metaFile); err != nil {
 		return printReturnError("failed to send file meta", err)
 	}
 
-	// retrieve server upload progress
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		bar := progressbar.Default(100)
-		for {
-			fileInfo, err := stream.Recv()
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				color.Red("error while getting server progress: ", err)
-				break
-			}
-			progressPercent := (fileInfo.SizeInBytes * 100) / totalFileSize
-			bar.Set64(progressPercent)
-		}
-	}()
+	doneCh := startProgressIndicator(stream, totalFileSize)
 
 	// stream file to the server
-	writer := &UploadFileWriter{
+	writer := &common.UploadFileWriter{
 		Stream: stream,
 	}
 	clientBytesWritten, err := io.Copy(writer, file)
@@ -111,7 +85,7 @@ func UploadFileWithProgress(filePath string) error {
 	if err = stream.CloseSend(); err != nil {
 		return printReturnError("failed to close stream send", err)
 	}
-	<-done
+	<-doneCh
 
 	color.Green("%d bytes were sent", clientBytesWritten)
 
@@ -137,20 +111,13 @@ func UploadFile(filePath string) error {
 	}
 
 	// send metadata
-	fileMeta := &pb.File{
-		Upload: &pb.File_Meta{
-			Meta: &pb.FileMeta{
-				FileNameWithExt: path.Base(filePath),
-				Type:            promptFileType(),
-			},
-		},
-	}
-	if err := stream.Send(fileMeta); err != nil {
+	metaFile := makeMetaFile(filePath)
+	if err := stream.Send(metaFile); err != nil {
 		return printReturnError("failed to send file meta", err)
 	}
 
 	// send file
-	writer := &UploadFileWriter{
+	writer := &common.UploadFileWriter{
 		Stream: stream,
 	}
 
@@ -176,52 +143,13 @@ func UploadFile(filePath string) error {
 	return nil
 }
 
-func printReturnError(msg string, err error) error {
-	color.Red("%s: %v", msg, err)
-	return err
-}
-
-func promptFileType() pb.FileType {
-	fileTypeEnums := map[string]pb.FileType{
-		pb.FileType_IMAGE.String():     pb.FileType_IMAGE,
-		pb.FileType_VIDEO.String():     pb.FileType_VIDEO,
-		pb.FileType_AUDIO.String():     pb.FileType_AUDIO,
-		pb.FileType_DOCUMENT.String():  pb.FileType_DOCUMENT,
-		pb.FileType_TEXTPLAIN.String(): pb.FileType_TEXTPLAIN,
-	}
-	supportedTypes := make([]string, 0, len(fileTypeEnums))
-	for fileType := range fileTypeEnums {
-		supportedTypes = append(supportedTypes, fileType)
-	}
-
-	prompt := promptui.Select{
-		Label: "Select one of the file type below",
-		Items: supportedTypes,
-	}
-
-	_, result, _ := prompt.Run()
-	return fileTypeEnums[result]
-}
-
-// compile time verification of interface implementation
-var _ io.Writer = (*UploadFileWriter)(nil)
-
-type ServerUploadStream interface {
-	Send(*pb.File) error
-}
-
-type UploadFileWriter struct {
-	Stream ServerUploadStream
-}
-
-func (w *UploadFileWriter) Write(buf []byte) (n int, err error) {
-	chunk := &pb.File{
-		Upload: &pb.File_Chunk{
-			Chunk: buf,
+func makeMetaFile(filePath string) *pb.File {
+	return &pb.File{
+		Upload: &pb.File_Meta{
+			Meta: &pb.FileMeta{
+				FileNameWithExt: path.Base(filePath),
+				Type:            promptFileType(),
+			},
 		},
 	}
-	if err = w.Stream.Send(chunk); err == nil {
-		n = len(buf)
-	}
-	return
 }

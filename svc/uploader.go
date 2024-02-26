@@ -8,42 +8,9 @@ import (
 	"path"
 	"strings"
 
+	common "github.com/cod3rboy/grpc-file-upload/common"
 	pb "github.com/cod3rboy/grpc-file-upload/gen/uploader"
 )
-
-var supportedFileTypes = map[string]map[string]bool{}
-
-func init() {
-	// initialize support file types and extensions
-	image := map[string]bool{
-		"jpg":  true,
-		"jpeg": true,
-		"png":  true,
-		"gif":  true,
-	}
-	video := map[string]bool{
-		"mp4": true,
-		"mkv": true,
-		"mov": true,
-	}
-	audio := map[string]bool{
-		"mp3": true,
-		"wav": true,
-		"aac": true,
-	}
-	document := map[string]bool{
-		"pdf": true,
-		"csv": true,
-	}
-	plainText := map[string]bool{
-		"txt": true,
-	}
-	supportedFileTypes[pb.FileType_IMAGE.String()] = image
-	supportedFileTypes[pb.FileType_VIDEO.String()] = video
-	supportedFileTypes[pb.FileType_AUDIO.String()] = audio
-	supportedFileTypes[pb.FileType_DOCUMENT.String()] = document
-	supportedFileTypes[pb.FileType_TEXTPLAIN.String()] = plainText
-}
 
 type uploaderSvc struct {
 	directory string
@@ -70,9 +37,7 @@ func (s *uploaderSvc) UploadFile(stream pb.UploaderService_UploadFileServer) err
 	if fileExt == "" {
 		return fmt.Errorf("extension not specified in file name")
 	}
-	supportedExts := supportedFileTypes[fileType]
-	_, fileSupported := supportedExts[fileExt]
-	if !fileSupported {
+	if !common.IsFileExtSupported(fileType, fileExt) {
 		return fmt.Errorf("file with extension %s is not supported", fileExt)
 	}
 
@@ -82,7 +47,7 @@ func (s *uploaderSvc) UploadFile(stream pb.UploaderService_UploadFileServer) err
 	}
 	defer uploadFile.Close()
 
-	reader := &UploadFileReader{
+	reader := &common.UploadFileReader{
 		Stream: stream,
 	}
 
@@ -116,9 +81,7 @@ func (s *uploaderSvc) UploadFileWithProgress(stream pb.UploaderService_UploadFil
 	if fileExt == "" {
 		return fmt.Errorf("extension not specified in file name")
 	}
-	supportedExts := supportedFileTypes[fileType]
-	_, fileSupported := supportedExts[fileExt]
-	if !fileSupported {
+	if !common.IsFileExtSupported(fileType, fileExt) {
 		return fmt.Errorf("file with extension %s is not supported", fileExt)
 	}
 
@@ -147,11 +110,11 @@ func (s *uploaderSvc) UploadFileWithProgress(stream pb.UploaderService_UploadFil
 			stream.Send(fileInfo)
 		}
 	}()
-	reader := &UploadFileReader{
+	reader := &common.UploadFileReader{
 		Stream: stream,
 	}
-	bytesReporter := &ReadBytesReporter{
-		reportChan: bytesReportChan,
+	bytesReporter := &common.ReadBytesReporter{
+		ReportChannel: bytesReportChan,
 	}
 	totalBytes, err := io.Copy(uploadFile, io.TeeReader(reader, bytesReporter))
 	close(bytesReportChan)
@@ -165,32 +128,6 @@ func (s *uploaderSvc) UploadFileWithProgress(stream pb.UploaderService_UploadFil
 	return nil
 }
 
-// compile time verification for interface implementation
-var _ io.Reader = (*UploadFileReader)(nil)
-
-type UploadFileStream interface {
-	Recv() (*pb.File, error)
-}
-
-type UploadFileReader struct {
-	Stream UploadFileStream
-}
-
-func (r *UploadFileReader) Read(buf []byte) (n int, err error) {
-	// Receive file binary stream from client
-	file, err := r.Stream.Recv()
-	if err == io.EOF {
-		return
-	}
-	if err != nil {
-		err = fmt.Errorf("failed to read file chunk: %v", err)
-		return
-	}
-	chunk := file.GetChunk()
-	copy(buf, chunk)
-	return len(chunk), nil
-}
-
 func PrepareFileUpload(rootFolder string, fileType string, fileName string) (*os.File, error) {
 	wd, _ := os.Getwd()
 	normalizedAbsolutePath := path.Join(wd, rootFolder, strings.ToLower(path.Join(fileType, fileName)))
@@ -202,14 +139,4 @@ func PrepareFileUpload(rootFolder string, fileType string, fileName string) (*os
 		return nil, fmt.Errorf("failed to create upload file: %v", err)
 	}
 	return file, nil
-}
-
-type ReadBytesReporter struct {
-	reportChan chan int
-}
-
-func (c *ReadBytesReporter) Write(buf []byte) (int, error) {
-	n := len(buf)
-	c.reportChan <- n
-	return n, nil
 }
